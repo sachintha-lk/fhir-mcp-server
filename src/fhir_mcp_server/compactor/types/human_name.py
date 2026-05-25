@@ -38,15 +38,17 @@ class HumanName(FhirTypesBaseModel):
         # {"use": "nickname", "given": ["Johnny"]}                                      -> "Johnny (nickname)"
         logger.debug(f"Compacting HumanName: {self.model_dump_json()}")
         if self.text:
-            logger.debug(f"HumanName has 'text' field, returning: '{self.text}'")
-            return self.text
+            compacted = self._append_use(self.text)
+            logger.debug(f"HumanName has 'text' field, returning: '{compacted}'")
+            return compacted
         parts: List[str] = [*(self.prefix or []), *(self.given or [])]
         if self.family:
             parts.append(self.family)
         parts.extend(self.suffix or [])
         result = " ".join(parts)
-        compacted = (
-            f"{result} ({self.use})" if self.use and self.use != "official" else result
-        )
+        compacted = self._append_use(result)
         logger.debug(f"Compacted HumanName: '{compacted}'")
         return compacted
+
+    def _append_use(self, value: str) -> str:
+        return f"{value} ({self.use})" if self.use and self.use != "official" else value
