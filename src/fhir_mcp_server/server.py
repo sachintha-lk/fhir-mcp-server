@@ -17,10 +17,10 @@
 import click
 import logging
 
+from fhir_mcp_server.field_filter import filter_resource_fields
 from fhir_mcp_server.utils import (
     build_user_profile,
     create_async_fhir_client,
-    filter_resource_fields,
     get_bundle_entries,
     get_default_headers,
     get_operation_outcome,
@@ -127,6 +127,7 @@ def configure_mcp_server() -> FastMCP:
         logger.debug("Enabling authorization for FHIR MCP server.")
         auth_settings: AuthSettings = AuthSettings(
             issuer_url=AnyHttpUrl(configs.effective_server_url),
+            resource_server_url=AnyHttpUrl(configs.effective_server_url),
             client_registration_options=ClientRegistrationOptions(
                 enabled=True,
                 valid_scopes=configs.scopes,
@@ -249,7 +250,7 @@ def register_mcp_tools(mcp: FastMCP) -> None:
             "Executes a standard FHIR `search` interaction on a given resource type, returning a bundle or list of matching resources. "
             "Use this when you need to query for multiple resources based on one or more search-parameters. "
             "Do not use this tool for create, update, or delete operations, and be aware that large result sets may be paginated by the FHIR server. "
-            "Specify fields to filter the response to only the data your task needs (e.g., Patient.birthDate, Observation.valueQuantity)."
+            "Optionally specify fields to filter the response to only the data your task needs (e.g., Patient.birthDate, Observation.valueQuantity)."
         )
     )
     async def search(
@@ -276,7 +277,7 @@ def register_mcp_tools(mcp: FastMCP) -> None:
         response_filter_fhirpaths: Annotated[
             List[str],
             Field(
-                description="Specify FHIRPath expressions to filter the response to only the data you need, reducing token usage. Omitting returns the full resource.",
+                description="Specify FHIRPath expressions to filter the response to only the data you need. Omitting returns the full resource.",
                 examples=[
                     [
                         "Condition.code",
@@ -336,7 +337,7 @@ def register_mcp_tools(mcp: FastMCP) -> None:
             "optionally refining the response with search parameters or custom operations. "
             "Use it when you know the exact resource ID and require that one resource; do not use it for bulk queries. "
             "If additional query-level parameters or operations are needed (e.g., _elements or $validate), include them in searchParam or operation. "
-            "Specify fields to filter the response to only the data your task needs (e.g., Patient.birthDate, Observation.valueQuantity)."
+            "Optionally specify fields to filter the response to only the data your task needs (e.g., Patient.birthDate, Observation.valueQuantity)."
         )
     )
     async def read(
@@ -375,7 +376,7 @@ def register_mcp_tools(mcp: FastMCP) -> None:
         response_filter_fhirpaths: Annotated[
             List[str],
             Field(
-                description="Specify FHIRPath expressions to filter the response to only the data you need, reducing token usage. Omitting returns the full resource. Bundle.* expressions supported with $everything.",
+                description="Specify FHIRPath expressions to filter the response to only the data you need. Omitting returns the full resource. Bundle.* expressions supported with $everything.",
                 examples=[
                     ["Patient.name", "Patient.birthDate", "Observation.valueQuantity"]
                 ],

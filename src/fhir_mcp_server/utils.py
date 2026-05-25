@@ -16,7 +16,6 @@
 
 import aiohttp
 import logging
-import fhirpathpy
 
 from fhir_mcp_server.oauth import ServerConfigs
 
@@ -25,8 +24,6 @@ from fhirpy import AsyncFHIRClient
 from mcp.shared._httpx_utils import create_mcp_http_client
 
 logger: logging.Logger = logging.getLogger(__name__)
-
-MAX_RECURSION_DEPTH_FOR_FILTERING = 10
 
 
 async def create_async_fhir_client(
@@ -127,146 +124,6 @@ async def get_capability_statement(metadata_url: str) -> Dict[str, Any]:
         )
         raise ValueError("Unable to fetch FHIR metadata")
 
-
-def _split_bundle_entry_paths(
-    field_paths: List[str],
-) -> tuple[List[str], List[str]]:
-    """Split field_paths into Bundle-level paths and per-entry relative paths.
-
-    Returns (bundle_paths, entry_relative_paths) where entry_relative_paths
-    have the 'Bundle.entry.resource.' prefix stripped.
-    """
-    bundle_paths = []
-    entry_relative_paths = []
-    for p in field_paths:
-        if p.startswith("Bundle.entry.resource."):
-            entry_relative_paths.append(p.removeprefix("Bundle.entry.resource."))
-        else:
-            bundle_paths.append(p)
-    return bundle_paths, entry_relative_paths
-
-
-def _filter_with_fhirpath(
-    resource: Dict[str, Any],
-    field_paths: List[str],
-) -> Dict[str, Any]:
-    """Apply FHIRPath expressions to a single FHIR resource."""
-
-    resource_type = resource.get("resourceType", "")
-
-    result: Dict[str, Any] = {}
-    not_matched: List[str] = []
-    errors: List[str] = []
-
-    for expr in field_paths:
-        prefix = expr.split(".")[0]
-        if not prefix or not prefix[0].isupper():
-            not_matched.append(expr)
-            continue
-        if prefix != resource_type:
-            continue
-        try:
-            matched = fhirpathpy.evaluate(resource, expr)
-            if matched:
-                key = (
-                    expr.removeprefix(f"{resource_type}.")
-                    if prefix == resource_type
-                    else expr
-                )
-                top_level_field = key.split(".")[0].split("(")[0]
-                is_array = isinstance(resource.get(top_level_field), list)
-                result[key] = matched if len(matched) > 1 or is_array else matched[0]
-            else:
-                not_matched.append(expr)
-        except Exception as e:
-            logger.warning("FHIRPath eval failed for expression %r: %s", expr, e)
-            errors.append(expr)
-
-    logger.debug(
-        "%s: matched %s, skipped %s",
-        resource_type or "unknown",
-        list(result),
-        not_matched + errors,
-    )
-    if not_matched:
-        result["_not_matched"] = not_matched
-    if errors:
-        result["_errors"] = errors
-    return result
-
-
-def filter_resource_fields(
-    data: Any,
-    field_paths: List[str] | None = None,
-    _depth: int = 0,
-    is_search: bool = False,
-) -> Any:
-    """
-    If field_paths provided, apply FHIRPath filtering to include only specified fields.
-    For Bundles, field_paths are applied at the Bundle wrapper level and recursively to each entry resource.
-    """
-
-    if not field_paths:
-        return data
-
-    if _depth >= MAX_RECURSION_DEPTH_FOR_FILTERING:
-        logger.debug(
-            "filter_resource_fields: max recursion depth %d reached, returning data unfiltered",
-            _depth,
-        )
-        return data
-
-    if isinstance(data, list):
-        return [
-            filter_resource_fields(item, field_paths, _depth + 1, is_search)
-            for item in data
-        ]
-
-    if not isinstance(data, dict):
-        return data
-
-    resource_type = data.get("resourceType", "")
-
-    if resource_type == "Bundle":
-        entries = data.get("entry", [])
-
-        bundle_paths, entry_resource_paths = _split_bundle_entry_paths(field_paths)
-
-        result = _filter_with_fhirpath(data, bundle_paths) if bundle_paths else {}
-
-        non_bundle_paths = [p for p in bundle_paths if not p.startswith("Bundle.")]
-        all_entry_paths = entry_resource_paths + non_bundle_paths
-        if all_entry_paths:
-            result["entry"] = [
-                filter_resource_fields(entry, all_entry_paths, _depth + 1, is_search)
-                for entry in entries
-            ]
-        return result
-
-    if "resource" in data and isinstance(data["resource"], dict):
-        resource = data["resource"]
-        search_mode = data.get("search", {}).get("mode")
-        resource_type = resource.get("resourceType", "")
-        qualified_paths = [
-            p
-            if (p.split(".")[0] and p.split(".")[0][0].isupper())
-            else f"{resource_type}.{p}"
-            for p in field_paths
-        ]
-        # $operation/_include may return mixed resource types
-        if not is_search or search_mode == "include":
-            prepend = [f"{resource_type}.id", f"{resource_type}.resourceType"]
-        elif search_mode == "match":
-            prepend = [f"{resource_type}.id"]
-        else:
-            prepend = []
-        result = _filter_with_fhirpath(resource, prepend + qualified_paths)
-
-        if search_mode == "include":
-            result["search"] = data["search"]
-        return result
-
-    return _filter_with_fhirpath(data, field_paths)
 
 
 def get_default_headers() -> Dict[str, str]:
