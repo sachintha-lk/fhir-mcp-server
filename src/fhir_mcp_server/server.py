@@ -306,9 +306,7 @@ def register_mcp_tools(mcp: FastMCP) -> None:
                 await client.resources(type).search(Raw(**searchParam)).fetch_raw()
             )
             logger.debug("Async resources fetched: %s", async_resources)
-            return filter_resource_fields(
-                async_resources, response_filter_fhirpaths, is_search=True
-            )
+            return filter_resource_fields(async_resources, response_filter_fhirpaths)
         except ValueError as ex:
             logger.exception(
                 f"User does not have permission to perform FHIR '{type}' resource search operation. Caused by, ",
@@ -403,7 +401,8 @@ def register_mcp_tools(mcp: FastMCP) -> None:
                 operation=operation or "", method="GET", params=searchParam
             )
 
-            return filter_resource_fields(bundle, response_filter_fhirpaths)
+            entries = await get_bundle_entries(bundle=bundle)
+            return filter_resource_fields(entries, response_filter_fhirpaths)
         except ResourceNotFound as ex:
             logger.error(
                 f"Resource of type '{type}' with id '{id}' not found. Caused by, ",

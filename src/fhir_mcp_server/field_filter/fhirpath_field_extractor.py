@@ -15,6 +15,7 @@
 # under the License.
 
 import logging
+import re
 import fhirpathpy
 
 from typing import Any, Dict, List
@@ -39,12 +40,17 @@ def extract_fields_by_fhirpath(
     not_matched: List[str] = []
     errors: List[str] = []
 
-    for path in field_paths:
-        path_parts = path.split(
-            "."
-        )  # e.g. "Patient.name.family" → ["Patient", "name", "family"]
+    if not field_paths:
+        return dict(resource)
 
-        resource_type_prefix = path_parts[0]
+    for path in field_paths:
+        if not path or "." not in path:
+            not_matched.append(path)
+            continue
+
+        # Split to separate the resource type (e.g. 'Patient') from the rest of the path,
+        # preserving dots inside string literals or URLs (e.g., inside .where() clauses).
+        resource_type_prefix, result_key = path.split(".", 1)
         if not resource_type_prefix or not resource_type_prefix[0].isupper():
             not_matched.append(path)
             continue
@@ -55,10 +61,12 @@ def extract_fields_by_fhirpath(
         try:
             matched = fhirpathpy.evaluate(resource, path)
             if matched:
-                result_key = ".".join(path_parts[1:])
-                root_field = path_parts[1].split("(")[0]  # "name.where(...)" → "name"
+                # Extract the base property name by splitting on the first dot or opening parenthesis
+                # (e.g. "name.family" -> "name", "name.where(...)" -> "name").
+                root_field = re.split(r"[.(]", result_key, maxsplit=1)[0]
 
-                # fhirpathpy always returns a list; unwrap to a single value (e.g. "1990-01-01" not ["1990-01-01"]) only if the field is not a list in the original resource
+                # fhirpathpy always returns a list. To keep the output standard, unwrap to a single value
+                # only if the field is expected to be a scalar/non-list in the original resource schema.
                 result[result_key] = (
                     matched
                     if isinstance(resource.get(root_field), list) or len(matched) > 1
