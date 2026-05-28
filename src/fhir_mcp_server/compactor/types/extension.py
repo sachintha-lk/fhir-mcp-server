@@ -95,8 +95,8 @@ class Extension(BaseModel):
         if isinstance(val, int):
             return str(val)
         if isinstance(val, dict):
-            from fhir_mcp_server.compactor.dispatch import compact_resource
+            from fhir_mcp_server.compactor.datatype_compactor import compact_datatypes
 
-            compacted = compact_resource(val)
+            compacted = compact_datatypes(val)
             return compacted if isinstance(compacted, str) else ""
         return ""
